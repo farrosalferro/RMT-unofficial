@@ -12,7 +12,6 @@ from mmpretrain.registry import MODELS
 from ..utils import (ConditionalPositionEncoding, build_norm_layer, to_2tuple,
                      SwiGLUFFNFused)
 from .base_backbone import BaseBackbone
-from .vision_transformer import VisionTransformer
 
 
 def bidirectional_explicit_decay(slen, gamma):
@@ -33,7 +32,7 @@ def two_dimensional_explicit_decay(height, width, gamma):
     return decay
 
 
-class RetentiveSelfAttention(BaseModule):
+class RetentiveSelfAttention(nn.Module):
     """Retentive Self-Attention Block for RMT.
     
     Args:
@@ -57,7 +56,7 @@ class RetentiveSelfAttention(BaseModule):
                  num_heads=8,
                  attn_drop=0.,
                  proj_drop=0.):
-        super(RetentiveSelfAttention).__init__()
+        super().__init__()
         self.resolution = resolution
         self.embed_dim = embed_dim
         self.value_dim = value_dim
@@ -78,7 +77,7 @@ class RetentiveSelfAttention(BaseModule):
             qr, kr.transpose(-1, -2)
         )  # (bsz, num_heads, num_tokens, key_dim) * (bsz, num_heads, key_dim, num_tokens)
         qk_mat = nn.functional.softmax(qk_mat, dim=-1)
-        qk_mat = qk_mat * decay
+        qk_mat = qk_mat * decay.to(qk_mat.device)
         return qk_mat
 
     def regular(self, qr, kr, vr, decay):
@@ -203,7 +202,7 @@ class RMTBlock(BaseModule):
                  act_cfg=dict(type='GELU'),
                  norm_cfg=dict(type='LN'),
                  init_cfg=None):
-        super(RMTBlock).__init__(init_cfg=init_cfg)
+        super(RMTBlock, self).__init__(init_cfg=init_cfg)
         self.resolution = resolution
         self.embed_dim = embed_dim
 
@@ -239,6 +238,7 @@ class RMTBlock(BaseModule):
         else:
             raise NotImplementedError
 
+        self.decomposition = decomposition
         if decomposition:
             self.decay = (bidirectional_explicit_decay(self.resolution[0],
                                                        gamma),
@@ -264,9 +264,12 @@ class RMTBlock(BaseModule):
                 nn.init.normal_(m.bias, std=1e-6)
 
     def forward(self, x):
-        x = x + self.dwcv(x)
-        x = x + self.resa(self.ln1(x))
-        x = self.ffn(self.ln2(x), identity=x)
+        x = x + self.dwcv(x)  # B, embed_dim, pH, pW
+        x = x.permute(0, 2, 3, 1)  # B, pH, pW, embed_dim
+        x = x + self.resa(self.ln1(x), self.decay, self.decomposition)
+        x = x + self.ffn(self.ln2(x))
+        x = x.permute(0, 3, 1, 2)  # B, embed_dim, pH, pW
+
         return x
 
 
@@ -411,7 +414,7 @@ class RMT(BaseBackbone):
 
         _patch_cfg.update(patch_cfg)
         self.patch_embed = PatchEmbed(**_patch_cfg)
-        self.patch_resolution = self.patch_embed.init_out_size
+        patch_resolution = self.patch_embed.init_out_size
 
         _cpe_cfg = dict(
             in_channels=self.embed_dims,
@@ -428,6 +431,8 @@ class RMT(BaseBackbone):
             x.item()
             for x in torch.linspace(0, drop_path_rate, sum(self.depths))
         ]
+
+        count_dpr = 0
 
         self.stages = ModuleList()
 
@@ -446,20 +451,22 @@ class RMT(BaseBackbone):
                 kernel_size=krnls,
                 stride=strd,
                 padding=0,
-                norm_cfg=dict(type='LN'),
+                norm_cfg=dict(type='BN', requires_grad=True),
                 act_cfg=dict(type='ReLU'),
                 **conv_cfg)
 
             conv = ConvModule(**_conv_cfg)
 
-            h_out = (self.patch_resolution[0] + 2 * conv.padding[0] -
+            self.stages.append(conv)
+
+            h_out = (patch_resolution[0] + 2 * conv.padding -
                      conv.dilation[0] *
                      (conv.kernel_size[0] - 1) - 1) // conv.stride[0] + 1
-            w_out = (self.patch_resolution[1] + 2 * conv.padding[1] -
+            w_out = (patch_resolution[1] + 2 * conv.padding -
                      conv.dilation[1] *
                      (conv.kernel_size[1] - 1) - 1) // conv.stride[1] + 1
 
-            self.patch_resolution = (h_out, w_out)
+            patch_resolution = (h_out, w_out)
 
             if isinstance(layer_cfgs, Sequence):
                 layer_cfg = layer_cfgs[i]
@@ -468,7 +475,7 @@ class RMT(BaseBackbone):
 
             for _ in range(dpth):
                 _layer_cfg = dict(
-                    resolution=self.patch_resolution,
+                    resolution=patch_resolution,
                     embed_dim=self.embed_dims,
                     value_dim=value_dim,
                     num_heads=nh,
@@ -477,17 +484,17 @@ class RMT(BaseBackbone):
                     layer_scale_init_value=layer_scale_init_value,
                     drop_rate=drop_rate,
                     attn_drop_rate=drop_rate,
-                    drop_path_rate=dpr[sum(self.depths[:i]
-                                           ):sum(self.depths[:i + 1])],
+                    drop_path_rate=dpr[count_dpr],
                     decomposition=dec,
-                    ffn_type='original',
+                    ffn_type='origin',
                     act_cfg=dict(type='GELU'),
                     norm_cfg=dict(type='LN'),
                     **layer_cfg)
 
                 stage = RMTBlock(**_layer_cfg)
 
-                self.stages.append(conv)
+                count_dpr += 1
+
                 self.stages.append(stage)
 
         self.final_norm = final_norm
@@ -529,16 +536,18 @@ class RMT(BaseBackbone):
 
     def forward(self, x):
         B = x.shape[0]
-        x, patch_resolution = self.patch_embed(x)
-        x = self.cpe(x)
-        x = self.drop_after_pos(x)
+        x, patch_resolution = self.patch_embed(x)  # B, pH * pW, embed_dim
+        x = self.cpe(x, patch_resolution)  # B, pH * pW, embed_dim
+        x = self.drop_after_pos(x)  # B, pH * pW, embed_dim
+        x = x.reshape(B, -1, patch_resolution[0],
+                      patch_resolution[1])  # B, embed_dim, pH, pW
 
         outs = []
         for i, stage in enumerate(self.stages):
             x = stage(x)
 
             if i == len(self.stages) - 1 and self.final_norm:
+                x = x.permute(0, 2, 3, 1)  # B, pH, pW, embed_dim
                 x = self.ln1(x)
-                outs.append(x)
-
+                outs.append(x.permute(0, 3, 1, 2))  # B, embed_dim, pH, pW
         return tuple(outs)

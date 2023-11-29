@@ -360,7 +360,7 @@ class RMT(BaseBackbone):
             }),
         **dict.fromkeys(
             ['x', 'experiment'], {
-                'embed_dims': 768,
+                'embed_dims': 288,
                 'depths': [4, 4, 24, 4],
                 'num_heads': [12, 24, 24, 48],
                 'mlp_ratios': [8, 8, 16, 16]

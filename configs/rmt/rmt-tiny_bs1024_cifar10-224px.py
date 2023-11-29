@@ -9,12 +9,12 @@ model = dict(backbone=dict(drop_path_rate=0.1))
 # dataset settings
 train_dataloader = dict(batch_size=1024, 
 			dataset=dict(
-				data_root='../../../../beegfs/ImageNet/ilsvrc12/train/'),
+				data_root='../../../../beegfs/ImageNet/ilsvrc12'),
 			)
 
 val_dataloader = dict(batch_size=1024,
 			dataset=dict(
-				data_root='../../../../beegfs/ImageNet/ilsvrc12/val/'),
+				data_root='../../../../beegfs/ImageNet/ilsvrc12'),
 			)
 
 test_dataloader = val_dataloader

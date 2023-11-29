@@ -24,9 +24,9 @@ optim_wrapper = dict(
     clip_grad=dict(max_norm=5.0),
 )
 
-train_dataloader = dict(num_workers=1, batch_size=2)
-val_dataloader = dict(num_workers=1, batch_size=2)
-test_dataloader = dict(num_workers=1, batch_size=2)
+train_dataloader = dict(num_workers=1, batch_size=3)
+val_dataloader = dict(num_workers=1, batch_size=3)
+test_dataloader = dict(num_workers=1, batch_size=3)
 
 default_hooks = dict(
     # log every 20 intervals

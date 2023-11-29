@@ -358,6 +358,13 @@ class RMT(BaseBackbone):
                 'num_heads': [6, 12, 24, 48],
                 'mlp_ratios': [8, 8, 8, 8]
             }),
+        **dict.fromkeys(
+            ['x', 'experiment'], {
+                'embed_dims': 768,
+                'depths': [4, 4, 24, 4],
+                'num_heads': [12, 24, 24, 48],
+                'mlp_ratios': [8, 8, 16, 16]
+            }),
     }
 
     def __init__(self,

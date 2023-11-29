@@ -30,6 +30,21 @@ Please refer to [installation documentation](https://mmpretrain.readthedocs.io/e
 
 ## Usage
 
+to train the RMT model, you can use tools/train.py. Here is the full usage of the script:
+
+```shell
+python tools/train.py ${CONFIG_FILE} [ARGS]
+```
+where CONFIG_FILE is the path to the config file. There are some predefined config files available inside the `configs/rmt` folder. One example is `rmt-tiny_b128_cifar10.py` where it runs the tiny configuration of rmt with batch size of 128 of the CIFAR10 dataset. Please refer to these tutorials about the basic usage of MMPretrain for new users:
+
+- [Learn about Configs](https://mmpretrain.readthedocs.io/en/latest/user_guides/config.html)
+- [Prepare Dataset](https://mmpretrain.readthedocs.io/en/latest/user_guides/dataset_prepare.html)
+- [Inference with existing models](https://mmpretrain.readthedocs.io/en/latest/user_guides/inference.html)
+- [Train](https://mmpretrain.readthedocs.io/en/latest/user_guides/train.html)
+- [Test](https://mmpretrain.readthedocs.io/en/latest/user_guides/test.html)
+- [Downstream tasks](https://mmpretrain.readthedocs.io/en/latest/user_guides/downstream.html)
+- [MMPretrain Documentation](https://mmpretrain.readthedocs.io/en/latest/).
+
 ## Acknowledgement
 
 MMPreTrain is an open source project that is contributed by researchers and engineers from various colleges and companies. Appreciation to all the contributors who implement their methods or add new features, as well as users who give valuable feedbacks. I also would like to thank the authors for writing such a wonderful paper.
